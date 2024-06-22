@@ -1,0 +1,6 @@
+Flask==3.0.3
+Flask_Bcrypt==1.0.1
+Flask_Cors==4.0.1
+Flask_PyMongo==2.3.0
+flask_session==0.8.0
+python-dotenv==1.0.1

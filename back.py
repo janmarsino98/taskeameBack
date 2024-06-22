@@ -22,6 +22,7 @@ mongo = PyMongo(app)
 
 users_db = mongo.db.users
 tasks_db = mongo.db.tasks
+reviews_db = mongo.db.reviews
 
 
 @app.route("/user", methods=["POST"])
@@ -117,7 +118,84 @@ def review_user():
         if field not in data:
             return jsonify({"message":f"You must specify {field}"})
         
+    if not (0<=data["rating"]<=5):
+        return jsonify({"message": "Your rating must be a number between 0 and 5"})
     
+    if not re.search(c.COMMENT_PAT, data["comment"]):
+        return jsonify({"message": "The comment can only contain alpha characters."})
     
+    if c.COMMENT_MIN_LEN > len(data["comment"]) or c.COMMENT_MAX_LEN < len(data["comment"]):
+        return jsonify({"message": f"The comment must have at least {c.COMMENT_MIN_LEN} and at most {c.COMMENT_MAX_LEN} characters."})
+        
+    if not reviews_db.find_one({
+        "task_id": data["task_id"], 
+        "reviewer_username": data["reviewer_username"],
+        "reviewed_username": data["reviewed_username"] 
+        }):
+        reviews_db.insert_one(
+            {
+                "reviewer_username": data["reviewer_username"],
+                "reviewed_username": data["reviewed_username"],
+                "task_id": data["task_id"],
+                "rating": data["rating"],
+                "comment": data["comment"],
+            }
+        )
+
+        return jsonify(""), 200
+    
+    return jsonify({"message": "Tasker already rated by this user for this task"}), 400
+
+@app.route("/task", methods=["POST"])
+def create_task():
+    mandatory_fields = ["title", "description", "compensation", "requester_username"]
+    data = request.json
+    for field in mandatory_fields:
+        if field not in data:
+            return jsonify({"message": f"You must specify {field} to create a task."})
+
+    if not re.search(c.TITLE_PAT, data["title"]):
+        return jsonify({"message": "The title contains forbidden characters."})
+    
+    if c.TITLE_MIN_LEN > len(data["title"]) or c.TITLE_MAX_LEN < len(data["title"]):
+        return jsonify({"message": f"The title must have at least {c.TITLE_MIN_LEN} and at most {c.TITLE_MAX_LEN} characters."})
+        
+    if not re.search(c.DESCRIPTION_PAT, data["title"]):
+        return jsonify({"message": "The description contains forbidden characters."})
+    
+    if c.DESCRIPTION_MIN_LEN > len(data["description"]) or c.DESCRIPTION_MAX_LEN < len(data["description"]):
+        return jsonify({"message": f"The description must have at least {c.DESCRIPTION_MIN_LEN} and at most {c.DESCRIPTION_MAX_LEN} characters."})
+        
+    try:
+        compensation = float(data["compensation"])
+        if compensation <= 0:
+            return jsonify({"message": "The compensation must be a positive number"}), 409
+        
+    except:
+        return jsonify({"message": "The compensation must be a decimal number"})
+    
+    if not users_db.find_one({"username": data["requester_username"]}):
+        return jsonify({"message": "The requester was not find in the users DB."})
+    
+    data["state"] = "pending"
+    data["limit_day"] = None
+    data["tasker_username"] = None
+    data["location"] = None
+    
+    tasks_db.insert_one(
+        data
+        )
+    
+    return jsonify(""), 200
+        
+@app.route("/task/<task_id>", methods=["GET"])
+def get_task(task_id):
+    task = tasks_db.find_one({"_id": ObjectId(task_id)})
+    if not task:
+        return jsonify({"message": "Task not found"}), 404
+    else:
+        task["_id"] = str(task["_id"])
+        return jsonify(task), 200
+        
 if __name__ == '__main__':
     app.run(debug=True)

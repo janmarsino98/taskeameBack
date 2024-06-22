@@ -14,3 +14,14 @@ PASSWORD_PAT = r"^(?=.*[A-Z])(?=.*[@\._&$!\?]).+$"
 PASSWORD_MIN_LEN = 10
 PASSWORD_MAX_LEN = 20
 
+COMMENT_PAT = r"^[A-Za-z0-9\s.,!?;:()'\"-]*$"
+COMMENT_MIN_LEN = 20
+COMMENT_MAX_LEN = 200
+
+TITLE_PAT = r"^[A-Za-z0-9\s.,!?;:()'\"-]*$"
+TITLE_MIN_LEN = 10
+TITLE_MAX_LEN = 40
+
+DESCRIPTION_PAT = r"^[A-Za-z0-9\s.,!?;:()'\"-]*$"
+DESCRIPTION_MIN_LEN = 10
+DESCRIPTION_MAX_LEN = 200

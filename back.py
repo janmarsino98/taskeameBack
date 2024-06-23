@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_pymongo import PyMongo, ObjectId
 from dotenv import load_dotenv
 import os
@@ -9,6 +9,8 @@ from flask_bcrypt import Bcrypt
 import random
 import re
 import constants as c
+from gridfs import GridFS
+import io
 
 load_dotenv()
 
@@ -19,10 +21,12 @@ app.config['MONGO_URI'] = os.getenv('MONGO_URI')
 BACK_ADDRESS = os.getenv('BACK_ADDRESS')
 
 mongo = PyMongo(app)
+bcrypt = Bcrypt(app)
 
 users_db = mongo.db.users
 tasks_db = mongo.db.tasks
 reviews_db = mongo.db.reviews
+fs = GridFS(mongo.db)
 
 
 @app.route("/user", methods=["POST"])
@@ -67,12 +71,13 @@ def create_user():
     }):
         return jsonify({"message": "A user with the same username, email or phone already exists"}), 201
 
-        
+    hashed_password = bcrypt.generate_password_hash(new_user["password"]).decode('utf-8')
+    
     users_db.insert_one({
         "username": new_user["username"],
         "name": new_user["name"],
         "email": new_user["email"],
-        "password": new_user["password"],
+        "password": hashed_password,
         "phone": new_user["phone"],
         "created_at": datetime.utcnow(),
         "verified": False,
@@ -149,7 +154,7 @@ def review_user():
 @app.route("/task", methods=["POST"])
 def create_task():
     mandatory_fields = ["title", "description", "compensation", "requester_username"]
-    data = request.json
+    data: dict = request.json
     for field in mandatory_fields:
         if field not in data:
             return jsonify({"message": f"You must specify {field} to create a task."})
@@ -169,24 +174,26 @@ def create_task():
     try:
         compensation = float(data["compensation"])
         if compensation <= 0:
-            return jsonify({"message": "The compensation must be a positive number"}), 409
+            return jsonify({"message": "The compensation must be a positive number"}), 400
         
-    except:
-        return jsonify({"message": "The compensation must be a decimal number"})
+    except ValueError:
+        return jsonify({"message": "The compensation must be a decimal number"}), 400
     
     if not users_db.find_one({"username": data["requester_username"]}):
         return jsonify({"message": "The requester was not find in the users DB."})
     
-    data["state"] = "pending"
-    data["limit_day"] = None
-    data["tasker_username"] = None
-    data["location"] = None
+    data.update({
+        "state": "pending",
+        "limit_date": None,
+        "tasker_username": None,
+        "location": None,   
+    })
     
     tasks_db.insert_one(
         data
         )
     
-    return jsonify(""), 200
+    return jsonify({}), 201
         
 @app.route("/task/<task_id>", methods=["GET"])
 def get_task(task_id):
@@ -196,6 +203,49 @@ def get_task(task_id):
     else:
         task["_id"] = str(task["_id"])
         return jsonify(task), 200
+    
+@app.route("/task/<task_id>", methods=["DELETE"])
+def delete_task(task_id):
+    result = tasks_db.delete_one({"_id": ObjectId(task_id)})
+    if result.deleted_count == 1:
+        return jsonify(""), 200
+    else:
+        return jsonify({"message": "Did not find a task with the specified id."}), 404
+
+@app.route("/upload_img", methods=["POST"])
+
+def upload_file():
+    if "file" not in request.files:
+        return jsonify({'message': 'No file in request.'})
+    
+    if "username" not in request.form:
+        return jsonify({'message': 'You must specify a username that will own the picture.'})
+    
+    file = request.files["file"] 
+    if file.filename == '':
+        return jsonify({'message': 'No file selected'})
+    
+    file_id = fs.put(file, filename=file.filename)
+    
+    return jsonify({"file_id": str(file_id)})
         
+        
+@app.route("/img/<img_id>", methods=["GET"])
+def get_img(img_id):
+    try:
+        # Intentar obtener el archivo de la base de datos
+        file = fs.get(ObjectId(img_id))
+    except Exception as e:
+        # Manejar errores de obtención del archivo
+        return jsonify({'message': 'Error al obtener la imagen.', 'error': str(e)}), 404
+    
+    # Devolver el archivo como respuesta
+    return send_file(
+        io.BytesIO(file.read()), 
+        download_name=file.filename, 
+        mimetype=file.content_type
+    )
+
+
 if __name__ == '__main__':
     app.run(debug=True)
